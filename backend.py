@@ -3,8 +3,13 @@ import os
 import datetime
 import requests
 import feedparser
-import google.generativeai as genai
 from bs4 import BeautifulSoup
+import google.generativeai as genai
+from google.generativeai.types import GenerationConfig
+
+# 通信プロトコルを強制的に正式版 (v1) に固定する（これが重要です）
+import google.ai.generativelanguage as gloss
+genai.configure(api_key=GEMINI_API_KEY, transport='rest') # 通信方式をRESTに変更
 
 # 設定: GitHub Actionsの環境変数からAPIキーを取得
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -38,7 +43,7 @@ def summarize_with_gemini(text, topic):
         return "API Key is missing."
         
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(model_name='gemini-1.5-flash') # 無料かつ高速
+    model = genai.GenerativeModel('gemini-1.5-flash') # 無料かつ高速
     
     prompt = f"""
     Target Topic: {topic}
@@ -55,7 +60,7 @@ def summarize_with_gemini(text, topic):
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"Error: {e}"
+        return f"Execution Error: {str(e)}"
 
 def run_collection():
     """
