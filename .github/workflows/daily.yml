@@ -2,8 +2,8 @@ name: Daily Info Collection
 
 on:
   schedule:
-    - cron: '0 */2 * * *'  # 2時間おき（UTC 0, 2, 4...時）に実行
-  workflow_dispatch:      # 手動実行を許可する設定（これが必要です）
+    - cron: '0 */2 * * *'  # 2時間おき
+  workflow_dispatch:       # 手動実行を許可
 
 jobs:
   build:
@@ -15,22 +15,26 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.11' # 3.9から3.11へ変更
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install --upgrade google-generativeai feedparser beautifulsoup4 requests PyGithub
+          # backend.pyを「API直叩き（requests）」にしたので、最小限のライブラリでOKです
+          pip install feedparser beautifulsoup4 requests PyGithub
 
       - name: Run collector
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # 以下の1行を追加：これがないとGitHubへの保存でエラーになる場合があります
+          MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
         run: python backend.py
 
       - name: Commit and push changes
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          # data.jsonが存在しない場合でもエラーにならないようにする
           git add data.json
           git commit -m "Daily data update" || exit 0
           git push
