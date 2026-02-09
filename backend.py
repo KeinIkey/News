@@ -7,7 +7,7 @@ import google.generativeai as genai
 from bs4 import BeautifulSoup
 
 # 設定: GitHub Actionsの環境変数からAPIキーを取得
-GEMINI_API_KEY = os.environ.get("AIzaSyDhpdmH7qfen5b3A6BWHc75aI8w4uSCQHg")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 def get_content_from_url(url):
     """
