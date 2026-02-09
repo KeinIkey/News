@@ -1,4 +1,4 @@
-google-genai
+google-generativeai==0.8.3
 requests
 beautifulsoup4
 feedparser
