@@ -1,113 +1,95 @@
-import json
 import os
-import datetime
-import requests
+import json
 import feedparser
+import requests
 from bs4 import BeautifulSoup
-import google.generativeai as genai
-from google.generativeai.types import GenerationConfig
+from google import genai  # 最新のライブラリを使用
+from github import Github
+from datetime import datetime
 
-# 通信プロトコルを強制的に正式版 (v1) に固定する（これが重要です）
-import google.ai.generativelanguage as gloss
-genai.configure(api_key=GEMINI_API_KEY, transport='rest') # 通信方式をRESTに変更
-
-# 設定: GitHub Actionsの環境変数からAPIキーを取得
+# --- 1. 環境変数と設定の読み込み ---
+# 必ず最初に行う
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-def get_content_from_url(url):
-    """
-    URLからテキスト情報を抽出する関数
-    RSSフィードまたはHTMLに対応
-    """
-    # RSSとして解析を試みる
-    feed = feedparser.parse(url)
-    if feed.entries:
-        return [(entry.title, entry.link, entry.description + " " + entry.title) for entry in feed.entries[:5]]
-    
-    # HTMLとして解析 (簡易実装)
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'} # ロボット扱いされないためのおまじない
-        resp = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(resp.content, 'html.parser')
-        # 本文抽出のヒューリスティック (pタグの集合)
-        text = " ".join([p.text for p in soup.find_all('p')])
-        return [(soup.title.string, url, text[:5000])] # 長すぎるとエラーになるためカット
-    except:
-        return []
+GITHUB_TOKEN = os.environ.get("MY_GITHUB_TOKEN")
+REPO_NAME = "KeinIkey/News"
 
 def summarize_with_gemini(text, topic):
-    """
-    Gemini APIを用いた要約写像 f: Text x Topic -> Summary
-    """
     if not GEMINI_API_KEY:
         return "API Key is missing."
-        
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash') # 無料かつ高速
     
-    prompt = f"""
-    Target Topic: {topic}
+    # 最新ライブラリ (google-genai) のクライアント作成
+    client = genai.Client(api_key=GEMINI_API_KEY)
     
-    以下のテキストを読み、このトピックに関連する重要な情報を抽出してください。
-    トピックと無関係であれば "None" とだけ出力してください。
-    関連がある場合、学術的な文脈を保ったまま日本語で要約してください。
-    背景、本文の大まかな構成ごとの要約、注意点を含むようにしてまとめてください。
+    prompt = f"トピック「{topic}」に関連する情報を以下のテキストから日本語で要約してください。関連がなければ 'None' とだけ出力してください。以下のテキストを読み、このトピックに関連する重要な情報を抽出してください。
+    トピックと無関係であれば "None" とだけ出力してください。関連がある場合、学術的な文脈を保ったまま日本語で要約してください。背景、本文の大まかな構成ごとの要約、注意点を含むようにしてまとめてください。\n\nText: {text[:5000]}"
     
-    Text:
-    {text}
-    """
     try:
-        response = model.generate_content(prompt)
+        # 最新のメソッド名 (models.generate_content)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt
+        )
         return response.text
     except Exception as e:
         return f"Execution Error: {str(e)}"
 
-def run_collection():
-    """
-    バッチ処理のメイン関数
-    """
-    # 設定の読み込み
+def main():
+    # config.json の読み込み
     with open('config.json', 'r', encoding='utf-8') as f:
         config = json.load(f)
     
-    topic = config.get('topic', '')
+    topic = config.get('topic', 'Mathematics')
     urls = config.get('urls', [])
     
-    new_data = []
+    new_reports = []
     
-    # 各URLに対して処理を実行
     for url in urls:
-        contents = get_content_from_url(url)
-        for title, link, text in contents:
+        # RSSフィードの解析
+        feed = feedparser.parse(url)
+        entries = feed.entries if feed.entries else []
+        
+        for entry in entries[:3]: # 各サイト最新3件
+            title = entry.title
+            link = entry.link
+            
+            # 本文の簡易取得
+            try:
+                res = requests.get(link, timeout=10)
+                soup = BeautifulSoup(res.text, 'html.parser')
+                text = soup.get_text()
+            except:
+                text = title
+            
             summary = summarize_with_gemini(text, topic)
             
-            # "None" でなければ結果集合に追加
             if summary and "None" not in summary:
-                new_data.append({
+                new_reports.append({
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "title": title,
-                    "url": link,
                     "summary": summary,
-                    "date": datetime.datetime.now().strftime('%Y-%m-%d'),
-                    "source": url
+                    "url": link
                 })
-    
-    # データの保存 (既存データとマージ)
-    data_file = 'data.json'
-    if os.path.exists(data_file):
-        with open(data_file, 'r', encoding='utf-8') as f:
-            try:
-                existing_data = json.load(f)
-            except:
-                existing_data = []
-    else:
-        existing_data = []
+
+    if new_reports:
+        # GitHubへの保存処理
+        g = Github(GITHUB_TOKEN)
+        repo = g.get_repo(REPO_NAME)
         
-    # 最新が上に来るように結合
-    final_data = new_data + existing_data
-    
-    # 保存
-    with open(data_file, 'w', encoding='utf-8') as f:
-        json.dump(final_data, f, ensure_ascii=False, indent=2)
+        try:
+            # 既存データの取得
+            contents = repo.get_contents("data.json")
+            old_data = json.loads(contents.decoded_content.decode('utf-8'))
+            updated_data = new_reports + old_data
+        except:
+            updated_data = new_reports
+            contents = None
+
+        final_json = json.dumps(updated_data[:50], indent=2, ensure_ascii=False) # 直近50件保持
+        
+        if contents:
+            repo.update_file(contents.path, "Daily update", final_json, contents.sha)
+        else:
+            repo.create_file("data.json", "Initial data", final_json)
 
 if __name__ == "__main__":
-    run_collection()
+    main()
