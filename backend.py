@@ -38,7 +38,7 @@ def summarize_with_gemini(text, topic):
         return "API Key is missing."
         
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash') # 無料かつ高速
+    model = genai.GenerativeModel('models/gemini-1.5-flash') # 無料かつ高速
     
     prompt = f"""
     Target Topic: {topic}
